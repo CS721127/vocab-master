@@ -41,7 +41,7 @@ console.log(
 );
 const health = await fetch(base + "/api/health");
 const data = await health.json();
-assert.ok(["ok", "configuration_required"].includes(data.status));
+assert.ok(["ok", "configuration_required", "unavailable"].includes(data.status));
 if (process.env.SMOKE_REQUIRE_READY === "1")
   assert.equal(
     health.status,

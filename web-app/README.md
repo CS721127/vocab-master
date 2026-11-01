@@ -17,7 +17,7 @@ Fill in the Supabase URL and **anon/publishable** key. Never use a service-role 
 - `/`: home; `/login` and `/signup`: separate account flows.
 - `/dashboard`: authenticated cloud collection with lists, editing, search, sorting, CSV import/export, and recall practice.
 - `/demo`: editable browser-local sample collection, no account required. Demo data does not sync to cloud; export CSV to transfer it.
-- `/api/health`: readiness; returns 503 when account configuration is missing, and reports AI configuration separately without secrets.
+- `/api/health`: readiness; checks the Auth service and both vocabulary tables, returns 503 when configuration is missing or unreachable, and reports AI configuration separately without secrets.
 
 CSV headers: `Term,Definition,Example,Notes`; first two are required. UTF-8, quoted multiline values and Chinese are supported. Imports accept up to 1,000 rows / 2 MB, reject invalid rows, and skip repeated terms in the destination list. Export uses the current search/list filter and escapes spreadsheet formulas.
 
@@ -56,4 +56,4 @@ Browser verification covers adding/editing words, lists, filtered practice, wron
 4. Push the verified commit to the existing production branch (`main`). Vercel automatically builds it. Do not create a desktop release tag for a web-only release.
 5. Wait for Vercel's deployment status to be `success`, then run the production smoke check and test sign-in, adding a temporary test word, persistence, and AI on that test word.
 
-Rollback: promote the preceding deployment in Vercel, or revert the release commit and push `main`. The additive migration is compatible with the preceding app; leave it applied. Trigger rollback for persistent 5xx responses, broken sign-in, or failed word saves. `/api/health` checks configuration presence, not database connectivity or provider quota.
+Rollback: promote the preceding deployment in Vercel, or revert the release commit and push `main`. The additive migration is compatible with the preceding app; leave it applied. Trigger rollback for persistent 5xx responses, broken sign-in, or failed word saves. `/api/health` checks Auth and database reachability. The AI flag reports key presence, not provider quota or model availability.
