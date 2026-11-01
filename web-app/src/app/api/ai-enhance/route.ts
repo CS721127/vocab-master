@@ -71,7 +71,7 @@ export async function POST(request: Request) {
       { status: 429, headers: { "Retry-After": "60" } },
     );
   try {
-    const model = process.env.GEMMA_MODEL || "gemma-3-27b-it";
+    const model = process.env.GEMMA_MODEL || "gemma-4-26b-a4b-it";
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
       {
@@ -99,7 +99,13 @@ export async function POST(request: Request) {
               ],
             },
           ],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 6000 },
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 6000,
+            ...(model.startsWith("gemma-4-")
+              ? { thinkingConfig: { thinkingLevel: "minimal" } }
+              : {}),
+          },
         }),
       },
     );
