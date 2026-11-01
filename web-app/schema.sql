@@ -27,14 +27,18 @@ CREATE TABLE words (
 ALTER TABLE lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE words ENABLE ROW LEVEL SECURITY;
 
+-- Keep vocabulary private to signed-in users and their own rows.
+REVOKE ALL ON TABLE lists, words FROM anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE lists, words TO authenticated;
+
 -- Lists Policies: Users can only see and modify their own lists
-CREATE POLICY "Users can view their own lists" ON lists FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert their own lists" ON lists FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can update their own lists" ON lists FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Users can delete their own lists" ON lists FOR DELETE USING (auth.uid() = user_id);
+CREATE POLICY "Users can view their own lists" ON lists FOR SELECT TO authenticated USING ((select auth.uid()) = user_id);
+CREATE POLICY "Users can insert their own lists" ON lists FOR INSERT TO authenticated WITH CHECK ((select auth.uid()) = user_id);
+CREATE POLICY "Users can update their own lists" ON lists FOR UPDATE TO authenticated USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id);
+CREATE POLICY "Users can delete their own lists" ON lists FOR DELETE TO authenticated USING ((select auth.uid()) = user_id);
 
 -- Words Policies: Users can only see and modify their own words
-CREATE POLICY "Users can view their own words" ON words FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can insert their own words" ON words FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Users can update their own words" ON words FOR UPDATE USING (auth.uid() = user_id);
-CREATE POLICY "Users can delete their own words" ON words FOR DELETE USING (auth.uid() = user_id);
+CREATE POLICY "Users can view their own words" ON words FOR SELECT TO authenticated USING ((select auth.uid()) = user_id);
+CREATE POLICY "Users can insert their own words" ON words FOR INSERT TO authenticated WITH CHECK ((select auth.uid()) = user_id AND (list_id IS NULL OR EXISTS (SELECT 1 FROM lists WHERE lists.id = words.list_id AND lists.user_id = (select auth.uid()))));
+CREATE POLICY "Users can update their own words" ON words FOR UPDATE TO authenticated USING ((select auth.uid()) = user_id) WITH CHECK ((select auth.uid()) = user_id AND (list_id IS NULL OR EXISTS (SELECT 1 FROM lists WHERE lists.id = words.list_id AND lists.user_id = (select auth.uid()))));
+CREATE POLICY "Users can delete their own words" ON words FOR DELETE TO authenticated USING ((select auth.uid()) = user_id);

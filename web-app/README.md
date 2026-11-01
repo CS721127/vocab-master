@@ -23,7 +23,7 @@ CSV headers: `Term,Definition,Example,Notes`; first two are required. UTF-8, quo
 
 ## Database
 
-For a new Supabase project, run `schema.sql`, then `migrations/20261101_web_release.sql` in SQL Editor. For an existing project, run **only the migration**. It adds indexes, checks word/list ownership, and provides transaction-safe AI updates plus a shared five-requests-per-user-per-minute limit. It does not remove vocabulary data. Apply it before enabling AI in production.
+For a new Supabase project, run `schema.sql`, then `migrations/20261101_web_release.sql` and `migrations/20261101_security_hardening.sql` in SQL Editor. For an existing project, run both migrations. They add indexes, enforce word/list ownership, keep private tables and RPCs authenticated-only, and provide transaction-safe AI updates plus a shared five-requests-per-user-per-minute limit. They do not remove vocabulary data. Apply them before enabling AI in production.
 
 Supabase Auth URL configuration:
 
@@ -52,7 +52,7 @@ Browser verification covers adding/editing words, lists, filtered practice, wron
 
 1. Keep the existing repository integration and project; Root Directory must be `web-app`.
 2. Configure the variables from `.env.example` in Vercel Production. `NEXT_PUBLIC_*` values are embedded at build time; changing them requires rebuilding. The existing production environment should be retained.
-3. Apply the additive SQL migration in Supabase.
+3. Apply both additive SQL migrations in Supabase.
 4. Push the verified commit to the existing production branch (`main`). Vercel automatically builds it. Do not create a desktop release tag for a web-only release.
 5. Wait for Vercel's deployment status to be `success`, then run the production smoke check and test sign-in, adding a temporary test word, persistence, and AI on that test word.
 

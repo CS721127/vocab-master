@@ -7,6 +7,7 @@ import {
   parseEnhancements,
   validateWord,
 } from "../src/lib/vocabulary.ts";
+import { checkSupabaseReadiness } from "../src/lib/readiness.ts";
 
 test("imports desktop CSV headers, multiline definitions and BOM", () => {
   const words = parseVocabularyCSV(
@@ -61,4 +62,24 @@ test("word validation trims input and rejects blank or oversized values", () => 
   assert.throws(() =>
     validateWord({ term: "a".repeat(201), definition: "test" }),
   );
+});
+test("readiness accepts authenticated-only table endpoints", async () => {
+  const ready = await checkSupabaseReadiness({
+    baseUrl: "https://example.supabase.co",
+    key: "public-key",
+    fetchImpl: async (input) => {
+      const path = new URL(input).pathname;
+      if (path === "/auth/v1/settings") return new Response("{}", { status: 200 });
+      return new Response("", { status: path.endsWith("lists") ? 401 : 403 });
+    },
+  });
+  assert.equal(ready, true);
+});
+test("readiness fails when Auth is unavailable", async () => {
+  const ready = await checkSupabaseReadiness({
+    baseUrl: "https://example.supabase.co",
+    key: "public-key",
+    fetchImpl: async () => new Response("", { status: 503 }),
+  });
+  assert.equal(ready, false);
 });
