@@ -1,282 +1,741 @@
-'use client'
+"use client";
+import {
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ChangeEvent,
+} from "react";
+import {
+  Plus,
+  Search,
+  Sparkles,
+  Download,
+  Upload,
+  BookOpen,
+  Pencil,
+  Trash2,
+  Folder,
+  ArrowUpDown,
+} from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import {
+  exportVocabularyCSV,
+  parseVocabularyCSV,
+  type Vocab,
+  type VocabList,
+  type WordInput,
+} from "@/lib/vocabulary";
+import WordForm from "./WordForm";
+import Practice from "./Practice";
+import Modal from "./Modal";
 
-import { useState, useMemo } from 'react'
-import { Plus, Search, Wand2, FileSpreadsheet, Download, RefreshCw, Trash2, Edit3, Type, FileText, Check, X, LogOut, UploadCloud, BookOpen } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
-import Papa from 'papaparse'
-
-type Vocab = { id: string; term: string; definition: string; example: string; notes: string }
-
-export default function VocabDashboard({ serverWords, userId }: { serverWords: Vocab[], userId: string }) {
-  const [words, setWords] = useState<Vocab[]>(serverWords)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [isAdding, setIsAdding] = useState(false)
-  const [isEnhancing, setIsEnhancing] = useState(false)
-  const [newTerm, setNewTerm] = useState({ term: '', definition: '', example: '', notes: '' })
-
-  // Practice State
-  const [practiceMode, setPracticeMode] = useState<boolean>(false)
-  const [practiceWords, setPracticeWords] = useState<Vocab[]>([])
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [wrongWords, setWrongWords] = useState<Vocab[]>([])
-  const [practiceInput, setPracticeInput] = useState('')
-  const [showResult, setShowResult] = useState<{correct: boolean, answer: string} | null>(null)
-  const [practiceComplete, setPracticeComplete] = useState(false)
-
-  const supabase = createClient()
-
-  const filteredWords = Object.values(words).filter(w => 
-      w.term.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      w.definition.toLowerCase().includes(searchTerm.toLowerCase())
-  )
-
-  const handleAddWord = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!newTerm.term || !newTerm.definition) return
-
-    const { data, error } = await supabase.from('words').insert([{ user_id: userId, ...newTerm }]).select().single()
-    if (!error && data) {
-        setWords([...words, data])
-        setIsAdding(false)
-        setNewTerm({ term: '', definition: '', example: '', notes: '' })
-    }
+const sampleLists: VocabList[] = [
+  { id: "everyday", name: "Everyday discoveries" },
+  { id: "reading", name: "From my reading" },
+];
+const sampleWords: Vocab[] = [
+  {
+    id: "one",
+    list_id: "everyday",
+    term: "serendipity",
+    definition: "The chance discovery of something pleasant or valuable.",
+    example: "Finding that little bookshop was pure serendipity.",
+    notes: "noun · a happy accident",
+  },
+  {
+    id: "two",
+    list_id: "everyday",
+    term: "resilient",
+    definition: "Able to recover after difficulty or change.",
+    example: "The resilient garden grew back after the storm.",
+    notes: "adjective",
+  },
+  {
+    id: "three",
+    list_id: "reading",
+    term: "eloquent",
+    definition: "Expressing ideas clearly and effectively.",
+    example: "She gave an eloquent account of her journey.",
+    notes: "adjective",
+  },
+  {
+    id: "four",
+    list_id: "reading",
+    term: "nuance",
+    definition: "A subtle difference in meaning, expression, or feeling.",
+    example: "Reading the original helped me understand every nuance.",
+    notes: "noun",
+  },
+  {
+    id: "five",
+    list_id: null,
+    term: "wander",
+    definition: "To walk or move without a fixed destination.",
+    example: "We wandered through the quiet streets.",
+    notes: "verb",
+  },
+];
+const storageKey = "vocab-master-demo-v1";
+const subscribe = (notify: () => void) => {
+  window.addEventListener("storage", notify);
+  window.addEventListener("vocab-demo-change", notify);
+  return () => {
+    window.removeEventListener("storage", notify);
+    window.removeEventListener("vocab-demo-change", notify);
+  };
+};
+const snapshot = () => {
+  try {
+    return localStorage.getItem(storageKey);
+  } catch {
+    return null;
   }
+};
+const serverSnapshot = () => null;
 
-  const handleDelete = async (id: string) => {
-    const { error } = await supabase.from('words').delete().eq('id', id)
-    if (!error) setWords(words.filter(w => w.id !== id))
-  }
-
-  const runAiEnhance = async () => {
-    if (!confirm('Start AI Enhancement using Gemma 3?')) return
-    setIsEnhancing(true)
+export default function VocabDashboard({
+  serverWords,
+  serverLists,
+  userId,
+  demo = false,
+}: {
+  serverWords: Vocab[];
+  serverLists: VocabList[];
+  userId: string;
+  demo?: boolean;
+}) {
+  const [cloudWords, setCloudWords] = useState(serverWords);
+  const [cloudLists, setCloudLists] = useState(serverLists);
+  const stored = useSyncExternalStore(subscribe, snapshot, serverSnapshot);
+  const demoData = useMemo(() => {
     try {
-        const res = await fetch('/api/ai-enhance', { method: 'POST', body: JSON.stringify({ words, userId }) })
-        if (res.ok) {
-            const data = await res.json()
-            setWords(data.updatedWords || words)
-            alert('AI Enhancement Complete! 🚀')
-        }
-    } finally { setIsEnhancing(false) }
-  }
-
-  const exportCSV = () => {
-    const csv = Papa.unparse(words.map(w => ({ Term: w.term, Definition: w.definition, Example: w.example, Notes: w.notes })))
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = 'vocab_master_export.csv'
-    link.click()
-  }
-
-  const startPractice = (mode: 'seq' | 'rev' | 'rand', overrideList?: Vocab[]) => {
-    if (words.length === 0) return alert('Add words first!')
-    let list = overrideList ? [...overrideList] : [...words]
-    if (mode === 'rev') list.reverse()
-    if (mode === 'rand') list.sort(() => Math.random() - 0.5)
-    
-    setPracticeWords(list)
-    setCurrentIndex(0)
-    setWrongWords([])
-    setShowResult(null)
-    setPracticeComplete(false)
-    setPracticeInput('')
-    setPracticeMode(true)
-  }
-
-  const handleCheck = (e: React.FormEvent) => {
-    e.preventDefault()
-    if(showResult) {
-        // Next question
-        if (currentIndex < practiceWords.length - 1) {
-            setCurrentIndex(prev => prev + 1)
-            setShowResult(null)
-            setPracticeInput('')
-        } else {
-            setPracticeComplete(true)
-        }
-        return
+      const value = stored ? JSON.parse(stored) : null;
+      if (value && Array.isArray(value.words) && Array.isArray(value.lists))
+        return value as { words: Vocab[]; lists: VocabList[] };
+    } catch {
+      /* fall back to the demo collection */
     }
-
-    // Checking answer
-    const currentWord = practiceWords[currentIndex]
-    const isCorrect = currentWord.term.toLowerCase().trim() === practiceInput.toLowerCase().trim()
-    
-    if (!isCorrect) {
-        setWrongWords(prev => [...prev, currentWord])
+    return { words: sampleWords, lists: sampleLists };
+  }, [stored]);
+  const words = demo ? demoData.words : cloudWords;
+  const lists = demo ? demoData.lists : cloudLists;
+  const [activeList, setActiveList] = useState("all");
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState("recent");
+  const [editing, setEditing] = useState<Vocab | "new" | null>(null);
+  const [practice, setPractice] = useState(false);
+  const [newList, setNewList] = useState(false);
+  const [listName, setListName] = useState("");
+  const [deleteWord, setDeleteWord] = useState<Vocab | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+  const visible = useMemo(
+    () =>
+      words
+        .filter(
+          (w) =>
+            (activeList === "all" ||
+              (activeList === "unfiled"
+                ? !w.list_id
+                : w.list_id === activeList)) &&
+            [w.term, w.definition, w.notes, w.example].some((value) =>
+              (value ?? "").toLowerCase().includes(query.toLowerCase().trim()),
+            ),
+        )
+        .sort((a, b) =>
+          sort === "az"
+            ? a.term.localeCompare(b.term)
+            : sort === "za"
+              ? b.term.localeCompare(a.term)
+              : 0,
+        ),
+    [words, activeList, query, sort],
+  );
+  const totalPages = Math.max(1, Math.ceil(visible.length / 50));
+  const currentPage = Math.min(page, totalPages);
+  const pageWords = visible.slice((currentPage - 1) * 50, currentPage * 50);
+  const title =
+    activeList === "all"
+      ? "Your collection"
+      : activeList === "unfiled"
+        ? "Unfiled words"
+        : (lists.find((l) => l.id === activeList)?.name ?? "Your collection");
+  function update(nextWords: Vocab[], nextLists = lists) {
+    if (demo) {
+      try {
+        localStorage.setItem(
+          storageKey,
+          JSON.stringify({ words: nextWords, lists: nextLists }),
+        );
+        window.dispatchEvent(new Event("vocab-demo-change"));
+      } catch {
+        throw new Error(
+          "Browser storage is unavailable or full. Export your words before continuing.",
+        );
+      }
+    } else {
+      setCloudWords(nextWords);
+      setCloudLists(nextLists);
     }
-    setShowResult({ correct: isCorrect, answer: currentWord.term })
   }
-
+  async function act(task: () => Promise<void>) {
+    setError("");
+    setNotice("");
+    setBusy(true);
+    try {
+      await task();
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Something went wrong. Please try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function saveWord(input: WordInput, listId: string | null) {
+    setNotice("");
+    setError("");
+    if (demo) {
+      if (editing && editing !== "new")
+        update(
+          words.map((w) =>
+            w.id === editing.id ? { ...w, ...input, list_id: listId } : w,
+          ),
+        );
+      else
+        update([
+          { ...input, id: crypto.randomUUID(), list_id: listId },
+          ...words,
+        ]);
+    } else {
+      const supabase = createClient();
+      const result =
+        editing && editing !== "new"
+          ? await supabase
+              .from("words")
+              .update({ ...input, list_id: listId })
+              .eq("id", editing.id)
+              .eq("user_id", userId)
+              .select()
+              .single()
+          : await supabase
+              .from("words")
+              .insert({ ...input, user_id: userId, list_id: listId })
+              .select()
+              .single();
+      if (result.error)
+        throw new Error(
+          "Unable to save your word. Check your connection and try again.",
+        );
+      update(
+        editing && editing !== "new"
+          ? words.map((w) => (w.id === editing.id ? result.data : w))
+          : [result.data, ...words],
+      );
+    }
+    setNotice("Word saved.");
+  }
+  async function importFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    await act(async () => {
+      if (file.size > 2 * 1024 * 1024)
+        throw new Error("Choose a CSV file smaller than 2 MB.");
+      const input = parseVocabularyCSV(await file.text());
+      const listId = ["all", "unfiled"].includes(activeList)
+        ? null
+        : activeList;
+      const known = new Set(
+        words
+          .filter((w) => w.list_id === listId)
+          .map((w) => w.term.toLowerCase()),
+      );
+      const fresh = input.filter((w) => {
+        const key = w.term.toLowerCase();
+        if (known.has(key)) return false;
+        known.add(key);
+        return true;
+      });
+      if (!fresh.length) {
+        setNotice(
+          "These words are already in this list. No duplicates were added.",
+        );
+        return;
+      }
+      let added: Vocab[];
+      if (demo)
+        added = fresh.map((w) => ({
+          ...w,
+          id: crypto.randomUUID(),
+          list_id: listId,
+        }));
+      else {
+        const result = await createClient()
+          .from("words")
+          .insert(
+            fresh.map((w) => ({ ...w, user_id: userId, list_id: listId })),
+          )
+          .select();
+        if (result.error)
+          throw new Error(
+            "Import failed. No words were added. Check your connection and try again.",
+          );
+        added = result.data;
+      }
+      update([...added, ...words]);
+      setNotice(
+        `Imported ${added.length} words.${input.length > fresh.length ? ` Skipped ${input.length - fresh.length} duplicates.` : ""}`,
+      );
+    });
+  }
+  function exportCSV() {
+    const url = URL.createObjectURL(
+      new Blob(["\uFEFF" + exportVocabularyCSV(visible)], {
+        type: "text/csv;charset=utf-8",
+      }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "vocab-master.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+    setNotice(`Exported ${visible.length} words.`);
+  }
+  async function createList() {
+    await act(async () => {
+      const name = listName.trim();
+      if (!name || name.length > 80)
+        throw new Error("Use a list name between 1 and 80 characters.");
+      if (lists.some((l) => l.name.toLowerCase() === name.toLowerCase()))
+        throw new Error("You already have a list with this name.");
+      let list: VocabList;
+      if (demo) list = { id: crypto.randomUUID(), name };
+      else {
+        const result = await createClient()
+          .from("lists")
+          .insert({ name, user_id: userId })
+          .select("id,name")
+          .single();
+        if (result.error)
+          throw new Error("Unable to create the list. Please try again.");
+        list = result.data;
+      }
+      update(words, [...lists, list]);
+      setActiveList(list.id);
+      setNewList(false);
+      setListName("");
+      setNotice("List created. New words will be added here.");
+    });
+  }
+  async function enhance() {
+    await act(async () => {
+      if (demo)
+        throw new Error(
+          "AI enhancement is available in your cloud account. The demo does not send words to AI.",
+        );
+      const response = await fetch("/api/ai-enhance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wordIds: visible.slice(0, 10).map((w) => w.id),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok)
+        throw new Error(data.error || "AI enhancement failed. Please retry.");
+      const updated = new Map<string, Vocab>(
+        data.updatedWords.map((w: Vocab) => [w.id, w]),
+      );
+      update(words.map((w) => updated.get(w.id) ?? w));
+      setNotice(
+        `Enhanced ${data.updatedWords.length} words with definitions and examples.${visible.length > 10 ? " Up to 10 words are processed per request; filter your collection to choose another group." : ""}`,
+      );
+    });
+  }
+  function listButton(id: string, name: string, count: number) {
+    return (
+      <button
+        key={id}
+        className={`list-button ${activeList === id ? "active" : ""}`}
+        aria-pressed={activeList === id}
+        onClick={() => {
+          setActiveList(id);
+          setQuery("");
+          setPage(1);
+        }}
+      >
+        <span className="flex items-center gap-2">
+          <Folder size={15} />
+          {name}
+        </span>
+        <span className="text-xs text-muted">{count}</span>
+      </button>
+    );
+  }
   return (
-    <div className="w-full flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-8 duration-500">
-        
-        {/* Toolbar */}
-        <div className="bg-white/80 backdrop-blur-xl rounded-3xl p-4 shadow-sm border border-indigo-50 flex flex-col sm:flex-row gap-4 items-center justify-between">
-            <div className="relative w-full sm:w-96 group">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-pink-400 focus-within:text-pink-500 transition-colors" size={20} />
-                <input type="text" placeholder="Search vocabularies..." className="w-full pl-12 pr-4 py-3 bg-pink-50/50 border-0 rounded-2xl focus:outline-none focus:ring-4 focus:ring-pink-100 transition-all font-medium text-slate-700" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-            </div>
-            
-            <div className="flex w-full sm:w-auto items-center gap-3 overflow-x-auto pb-2 sm:pb-0 hide-scrollbar">
-                <button onClick={() => setIsAdding(true)} className="flex items-center gap-2 bg-indigo-500 hover:bg-indigo-600 text-white px-5 py-3 rounded-2xl font-bold shadow-md shadow-indigo-200 transition-all active:scale-95 whitespace-nowrap">
-                    <Plus size={18} /> New Word
-                </button>
-                <button onClick={() => startPractice('seq')} className="flex items-center gap-2 bg-emerald-400 hover:bg-emerald-500 text-white px-5 py-3 rounded-2xl font-bold shadow-md shadow-emerald-200 transition-all active:scale-95 whitespace-nowrap">
-                    <BookOpen size={18} /> Practice
-                </button>
-                <button onClick={exportCSV} className="flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-600 px-5 py-3 rounded-2xl font-bold transition-all active:scale-95 whitespace-nowrap">
-                    <Download size={18} /> CSV
-                </button>
-                <button onClick={runAiEnhance} disabled={isEnhancing} className="flex items-center gap-2 bg-gradient-to-r from-fuchsia-500 to-pink-500 text-white px-5 py-3 rounded-2xl font-bold shadow-md shadow-pink-200 transition-all active:scale-95 disabled:opacity-50 whitespace-nowrap">
-                    {isEnhancing ? <RefreshCw size={18} className="animate-spin" /> : <Wand2 size={18} />} AI Enhance
-                </button>
-            </div>
+    <div className="workspace">
+      <aside className="sidebar">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-sm">My lists</h2>
+          <button
+            className="icon-button"
+            aria-label="Create list"
+            onClick={() => {
+              setError("");
+              setNewList(true);
+            }}
+          >
+            <Plus size={16} />
+          </button>
         </div>
-
-        {/* Data Grid */}
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex-1 min-h-[500px]">
-            {filteredWords.length === 0 ? (
-                <div className="h-[500px] flex flex-col items-center justify-center p-12 text-center text-slate-400">
-                    <div className="w-24 h-24 mb-4 bg-indigo-50 rounded-[2rem] flex items-center justify-center">
-                        <FileText size={40} className="text-indigo-300 transform -rotate-6" />
-                    </div>
-                    <h3 className="text-xl font-bold text-slate-600 mb-2">It's a bit empty here!</h3>
-                    <p className="text-sm">Click "New Word" to start building your magical library.</p>
-                </div>
-            ) : (
-                <div className="overflow-x-auto p-2">
-                    <table className="w-full text-left border-collapse min-w-[800px]">
-                        <thead>
-                            <tr className="text-slate-400 text-sm uppercase tracking-wider">
-                                <th className="p-4 font-bold flex-1">Term</th>
-                                <th className="p-4 font-bold w-1/3">Definition</th>
-                                <th className="p-4 font-bold w-1/3">Example</th>
-                                <th className="p-4 font-bold text-right pr-6">⚙️</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50">
-                            {filteredWords.map((word) => (
-                                <tr key={word.id} className="hover:bg-slate-50/80 transition-colors group rounded-2xl">
-                                    <td className="p-4 align-top">
-                                        <div className="font-bold text-indigo-900 bg-indigo-50 inline-block px-3 py-1 rounded-xl">{word.term}</div>
-                                        {word.notes && <div className="text-xs text-pink-400 font-bold mt-2 ml-2 uppercase tracking-wide">{word.notes}</div>}
-                                    </td>
-                                    <td className="p-4 text-slate-600 align-top font-medium">
-                                        {word.definition}
-                                    </td>
-                                    <td className="p-4 text-slate-500 align-top italic text-sm">
-                                        {word.example ? `"${word.example}"` : <span className="opacity-30">—</span>}
-                                    </td>
-                                    <td className="p-4 align-top text-right pr-6">
-                                        <button onClick={() => handleDelete(word.id)} className="p-2 text-slate-300 hover:bg-red-50 hover:text-red-500 rounded-xl transition-colors opacity-0 group-hover:opacity-100">
-                                            <Trash2 size={18} />
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+        <nav aria-label="Vocabulary lists">
+          {listButton("all", "All words", words.length)}
+          {lists.map((list) =>
+            listButton(
+              list.id,
+              list.name,
+              words.filter((w) => w.list_id === list.id).length,
+            ),
+          )}
+          {listButton(
+            "unfiled",
+            "Unfiled",
+            words.filter((w) => !w.list_id).length,
+          )}
+        </nav>
+        <p className="hidden sm:block text-xs text-muted leading-6 mt-8">
+          {demo
+            ? "Demo words stay in this browser. Export a CSV to keep a copy."
+            : "Your collection syncs with your account."}
+        </p>
+      </aside>
+      <section className="workspace-content">
+        <div className="flex items-start justify-between gap-4 mb-7">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight break-words">
+              {title}
+            </h1>
+            <p className="text-muted text-sm mt-2">
+              {visible.length} {visible.length === 1 ? "word" : "words"}
+              {query ? " matching your search" : " to make your own"}
+            </p>
+          </div>
+          <button
+            className="button primary shrink-0"
+            disabled={busy}
+            onClick={() => setEditing("new")}
+          >
+            <Plus size={17} />
+            <span>Add word</span>
+          </button>
+        </div>
+        <div className="flex flex-wrap justify-between gap-3 mb-5">
+          <div className="relative flex-1 min-w-40 max-w-sm">
+            <Search className="absolute left-3 top-3.5 text-muted" size={17} />
+            <input
+              aria-label="Search words"
+              type="search"
+              className="pl-10! text-sm"
+              placeholder="Search your collection"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="button secondary compact"
+              disabled={!visible.length || busy}
+              onClick={() => setPractice(true)}
+            >
+              <BookOpen size={16} />
+              Practice
+            </button>
+            <button
+              title="CSV headers: Term, Definition, Example, Notes"
+              className="button secondary compact"
+              disabled={busy}
+              onClick={() => fileInput.current?.click()}
+            >
+              <Upload size={16} />
+              Import
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept=".csv,text/csv"
+              hidden
+              onChange={importFile}
+            />
+            <button
+              className="button secondary compact"
+              disabled={!visible.length || busy}
+              onClick={exportCSV}
+            >
+              <Download size={16} />
+              Export
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+          <label className="inline-flex items-center gap-2 text-xs text-muted">
+            <ArrowUpDown size={14} />
+            <select
+              aria-label="Sort words"
+              className="py-2! text-xs! w-auto!"
+              value={sort}
+              onChange={(e) => {
+                setSort(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="recent">Recently added</option>
+              <option value="az">Term A–Z</option>
+              <option value="za">Term Z–A</option>
+            </select>
+          </label>
+          <button
+            className="inline-flex items-center gap-2 text-xs font-semibold text-accent p-2"
+            disabled={busy || !visible.length}
+            onClick={enhance}
+          >
+            <Sparkles size={15} />
+            {busy ? "Working…" : "Refine with AI"}
+            <span className="text-muted font-normal">· up to 10 words</span>
+          </button>
+        </div>
+        {(error || notice) && (
+          <div
+            className={`notice mb-5 ${error ? "error" : ""}`}
+            role={error ? "alert" : "status"}
+          >
+            {error || notice}
+          </div>
+        )}
+        <div className="bg-surface border border-border rounded-xl overflow-hidden">
+          {visible.length ? (
+            <table className="word-table">
+              <thead>
+                <tr>
+                  <th scope="col">Term</th>
+                  <th scope="col">Definition</th>
+                  <th scope="col">In context</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageWords.map((word) => (
+                  <tr key={word.id}>
+                    <td>
+                      <button
+                        className="font-semibold text-base text-accent text-left hover:underline"
+                        onClick={() => setEditing(word)}
+                      >
+                        {word.term}
+                      </button>
+                      {word.notes && (
+                        <p className="text-xs text-muted mt-1">{word.notes}</p>
+                      )}
+                    </td>
+                    <td>{word.definition}</td>
+                    <td className="text-muted italic">
+                      {word.example ||
+                        "Add an example to give this word context."}
+                    </td>
+                    <td>
+                      <div className="flex justify-end">
+                        <button
+                          className="icon-button text-muted"
+                          disabled={busy}
+                          aria-label={`Edit ${word.term}`}
+                          onClick={() => setEditing(word)}
+                        >
+                          <Pencil size={16} />
+                        </button>
+                        <button
+                          className="icon-button text-muted hover:text-red-700"
+                          disabled={busy}
+                          aria-label={`Delete ${word.term}`}
+                          onClick={() => setDeleteWord(word)}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="text-center px-6 py-20">
+              <BookOpen size={34} className="mx-auto mb-5 text-muted" />
+              <h2 className="font-semibold text-xl mb-3">
+                {query ? "No words found." : "Your next discovery starts here."}
+              </h2>
+              <p className="text-sm text-muted mb-6">
+                {query
+                  ? "Try another term, definition, or note."
+                  : "Add a word or import a CSV with Term and Definition columns."}
+              </p>
+              <button
+                className="button secondary"
+                onClick={() => (query ? setQuery("") : setEditing("new"))}
+              >
+                {query ? "Clear search" : "Add your first word"}
+              </button>
+            </div>
+          )}
+        </div>
+        <nav
+          aria-label="Collection pages"
+          className="flex justify-between items-center mt-5 text-xs text-muted"
+        >
+          <span>
+            {visible.length
+              ? `${(currentPage - 1) * 50 + 1}–${Math.min(currentPage * 50, visible.length)} of ${visible.length} words`
+              : "0 words"}
+          </span>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-3">
+              <button
+                className="button secondary compact"
+                disabled={currentPage === 1}
+                onClick={() => setPage(currentPage - 1)}
+              >
+                Previous
+              </button>
+              <span>
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                className="button secondary compact"
+                disabled={currentPage === totalPages}
+                onClick={() => setPage(currentPage + 1)}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </nav>
+      </section>
+      {editing && (
+        <WordForm
+          lists={lists}
+          initialListId={
+            editing === "new"
+              ? ["all", "unfiled"].includes(activeList)
+                ? null
+                : activeList
+              : editing.list_id
+          }
+          initial={editing === "new" ? undefined : editing}
+          onSave={saveWord}
+          onClose={() => setEditing(null)}
+        />
+      )}
+      {practice && (
+        <Practice words={visible} onClose={() => setPractice(false)} />
+      )}
+      {newList && (
+        <Modal
+          title="Create a list"
+          onClose={() => {
+            if (!busy) setNewList(false);
+          }}
+        >
+          <form
+            className="grid gap-4"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void createList();
+            }}
+          >
+            <label className="field">
+              List name
+              <input
+                autoFocus
+                required
+                maxLength={80}
+                value={listName}
+                onChange={(e) => setListName(e.target.value)}
+                placeholder="e.g. Words from my reading"
+              />
+            </label>
+            {error && (
+              <p className="notice error" role="alert">
+                {error}
+              </p>
             )}
-        </div>
-
-        {/* Practice Modal */}
-        {practiceMode && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in">
-                <div className="bg-white rounded-[2rem] shadow-2xl p-8 w-full max-w-lg transform animate-in zoom-in-95">
-                    {practiceComplete ? (
-                        <div className="text-center">
-                           <div className="w-24 h-24 bg-emerald-100 text-emerald-500 rounded-[2rem] flex items-center justify-center mx-auto mb-6 transform rotate-3">
-                               <Check size={50} />
-                           </div>
-                           <h2 className="text-3xl font-bold text-slate-800 mb-2">Session Complete!</h2>
-                           <p className="text-slate-500 mb-8 font-medium">You got {practiceWords.length - wrongWords.length} out of {practiceWords.length} correct.</p>
-                           
-                           {wrongWords.length > 0 && (
-                               <button onClick={() => startPractice('seq', wrongWords)} className="w-full bg-pink-500 hover:bg-pink-600 text-white font-bold py-4 rounded-2xl mb-3 shadow-lg shadow-pink-200 active:scale-95 transition-all">
-                                   Retry {wrongWords.length} Wrong Words
-                               </button>
-                           )}
-                           <button onClick={() => setPracticeMode(false)} className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-4 rounded-2xl active:scale-95 transition-all">
-                               Close
-                           </button>
-                        </div>
-                    ) : (
-                        <form onSubmit={handleCheck}>
-                            <div className="flex justify-between items-center mb-8">
-                                <span className="bg-indigo-100 text-indigo-600 font-bold px-3 py-1 rounded-xl text-sm">
-                                    Q {currentIndex + 1} / {practiceWords.length}
-                                </span>
-                                <button type="button" onClick={() => setPracticeMode(false)} className="text-slate-400 hover:text-slate-600"><X size={24} /></button>
-                            </div>
-                            
-                            <h3 className="text-2xl font-bold text-slate-800 mb-6 text-center">
-                                {practiceWords[currentIndex].definition}
-                            </h3>
-
-                            <input 
-                                autoFocus 
-                                type="text" 
-                                value={practiceInput} 
-                                onChange={e => !showResult && setPracticeInput(e.target.value)} 
-                                disabled={showResult !== null}
-                                className={`w-full text-center text-xl bg-slate-50 border-2 rounded-2xl px-4 py-4 font-bold outline-none transition-all ${
-                                    showResult 
-                                        ? showResult.correct ? 'border-emerald-400 text-emerald-600 bg-emerald-50' : 'border-red-400 text-red-600 bg-red-50'
-                                        : 'border-slate-200 focus:border-indigo-400 text-indigo-900 focus:shadow-xl focus:shadow-indigo-100'
-                                }`} 
-                                placeholder="Type the term..." 
-                            />
-
-                            {showResult && !showResult.correct && (
-                                <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-2xl font-bold text-center flex flex-col animate-in fade-in slide-in-from-top-2">
-                                    <span className="text-sm opacity-80 uppercase tracking-wider mb-1">Correct Answer</span>
-                                    <span className="text-xl">{showResult.answer}</span>
-                                </div>
-                            )}
-
-                            <button type="submit" className={`w-full mt-8 font-bold py-4 rounded-2xl shadow-lg active:scale-[0.98] transition-all text-white ${showResult ? 'bg-indigo-500 shadow-indigo-200 hover:bg-indigo-600' : 'bg-emerald-400 shadow-emerald-200 hover:bg-emerald-500'}`}>
-                                {showResult ? 'Next' : 'Check Answer'}
-                            </button>
-                        </form>
-                    )}
-                </div>
-            </div>
-        )}
-
-        {/* Add Modal */}
-        {isAdding && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in">
-                <div className="bg-white rounded-[2rem] shadow-2xl p-8 w-full max-w-lg transform animate-in zoom-in-95">
-                    <h2 className="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-3">
-                        <div className="bg-emerald-100 text-emerald-600 p-2 rounded-xl"><Plus size={20} /></div>
-                        Learn Magic Word
-                    </h2>
-                    
-                    <form onSubmit={handleAddWord} className="flex flex-col gap-4">
-                        <div>
-                            <input autoFocus required type="text" value={newTerm.term} onChange={e => setNewTerm({...newTerm, term: e.target.value})} className="w-full bg-slate-50 border-0 rounded-2xl px-4 py-4 font-bold text-lg text-slate-700 outline-none focus:ring-4 focus:ring-emerald-100 transition-all placeholder:text-slate-300" placeholder="New term..." />
-                        </div>
-                        
-                        <div>
-                            <textarea required value={newTerm.definition} onChange={e => setNewTerm({...newTerm, definition: e.target.value})} className="w-full bg-slate-50 border-0 rounded-2xl px-4 py-4 font-medium text-slate-700 outline-none focus:ring-4 focus:ring-emerald-100 transition-all min-h-[100px] resize-y placeholder:text-slate-300" placeholder="Definition..." />
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <input type="text" value={newTerm.example} onChange={e => setNewTerm({...newTerm, example: e.target.value})} className="w-full bg-slate-50 border-0 rounded-2xl px-4 py-3 font-medium text-slate-700 outline-none focus:ring-4 focus:ring-emerald-100 transition-all placeholder:text-slate-300" placeholder="Example sentence" />
-                            <input type="text" value={newTerm.notes} onChange={e => setNewTerm({...newTerm, notes: e.target.value})} className="w-full bg-slate-50 border-0 rounded-2xl px-4 py-3 font-medium text-slate-700 outline-none focus:ring-4 focus:ring-emerald-100 transition-all placeholder:text-slate-300" placeholder="Notes (Part of speech)" />
-                        </div>
-
-                        <div className="flex gap-3 mt-4">
-                            <button type="button" onClick={() => setIsAdding(false)} className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-4 rounded-2xl transition-all">Cancel</button>
-                            <button type="submit" className="flex-[2] bg-emerald-400 hover:bg-emerald-500 text-white font-bold py-4 rounded-2xl shadow-lg shadow-emerald-200 active:scale-95 transition-all">Save Spell</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        )}
-
+            <button className="button primary justify-center" disabled={busy}>
+              {busy ? "Creating…" : "Create list"}
+            </button>
+          </form>
+        </Modal>
+      )}
+      {deleteWord && (
+        <Modal
+          title={`Delete “${deleteWord.term}”?`}
+          onClose={() => {
+            if (!busy) setDeleteWord(null);
+          }}
+        >
+          <p className="text-muted text-sm mb-6">
+            This removes the word from your collection. Export a copy first if
+            you want to keep it.
+          </p>
+          {error && (
+            <p className="notice error mb-4" role="alert">
+              {error}
+            </p>
+          )}
+          <div className="flex justify-end gap-3">
+            <button
+              className="button secondary"
+              disabled={busy}
+              onClick={() => setDeleteWord(null)}
+            >
+              Cancel
+            </button>
+            <button
+              className="button primary"
+              disabled={busy}
+              onClick={() =>
+                void act(async () => {
+                  if (!demo) {
+                    const result = await createClient()
+                      .from("words")
+                      .delete()
+                      .eq("id", deleteWord.id)
+                      .eq("user_id", userId)
+                      .select("id")
+                      .single();
+                    if (result.error)
+                      throw new Error(
+                        "Unable to delete the word. Please try again.",
+                      );
+                  }
+                  update(words.filter((w) => w.id !== deleteWord.id));
+                  setDeleteWord(null);
+                  setNotice("Word deleted.");
+                })
+              }
+            >
+              {busy ? "Deleting…" : "Delete word"}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
-  )
+  );
 }

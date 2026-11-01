@@ -1,40 +1,31 @@
-import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
-import { NextResponse } from 'next/server'
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { isSupabaseConfigured } from "@/lib/config";
+import { safeNextPath } from "@/lib/vocabulary";
 
 export async function GET(request: Request) {
-  const requestUrl = new URL(request.url)
-  const code = requestUrl.searchParams.get('code')
-  const next = requestUrl.searchParams.get('next') ?? '/dashboard'
-
-  if (code) {
-    const cookieStore = await cookies()
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll()
-          },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              )
-            } catch {
-              // The `setAll` method was called from a Server Component.
-            }
-          },
-        },
-      }
-    )
-    const { error } = await supabase.auth.exchangeCodeForSession(code)
-    if (!error) {
-      return NextResponse.redirect(`${requestUrl.origin}${next}`)
-    }
+  const url = new URL(request.url);
+  if (isSupabaseConfigured()) {
+    const supabase = await createClient();
+    const code = url.searchParams.get("code");
+    const tokenHash = url.searchParams.get("token_hash");
+    const result = code
+      ? await supabase.auth.exchangeCodeForSession(code)
+      : tokenHash && url.searchParams.get("type") === "email"
+        ? await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: "email",
+          })
+        : null;
+    if (result && !result.error)
+      return NextResponse.redirect(
+        new URL(safeNextPath(url.searchParams.get("next")), url.origin),
+      );
   }
-
-  // return the user to an error page with some instructions
-  return NextResponse.redirect(`${requestUrl.origin}/login?message=Could not verify email`)
+  return NextResponse.redirect(
+    new URL(
+      "/login?error=The%20confirmation%20link%20is%20invalid%20or%20expired.%20Please%20try%20signing%20in%20or%20request%20a%20new%20confirmation%20email.",
+      url.origin,
+    ),
+  );
 }

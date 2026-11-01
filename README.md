@@ -58,11 +58,16 @@ vocab-master/
 - **Local-First Storage** — No database needed; all data is stored in `~/.vocabapp/`
 
 ### Web App (Next.js)
+
+[Open Vocab Master](https://vocab-master-sand.vercel.app/) · [Web setup and deployment guide](web-app/README.md)
+
 - **User Authentication** — Secure sign-up/login powered by Supabase Auth
-- **Vocabulary Dashboard** — Full CRUD for vocabulary lists and words in the browser
+- **Vocabulary Dashboard** — Create lists, add/edit/delete words, move words between lists, search, and sort
 - **AI Enhancement API** — Server-side Gemma 3 27B integration for batch word enrichment
 - **Cloud Sync** — All vocabulary data persisted in Supabase (PostgreSQL) with Row Level Security
-- **CSV Import** — Drag-and-drop CSV import via PapaParse
+- **CSV Import/Export** — Validated CSV import with duplicate detection and filtered export
+- **Practice** — Sequential, reverse, and shuffled recall with missed-word retry
+- **Browser Demo** — Try the workspace without an account; sample data stays in your browser
 - **Responsive UI** — Built with Tailwind CSS v4
 
 ---
@@ -136,7 +141,7 @@ GEMMA_API_KEY=your_google_gemma_api_key
 
 **Set up the Supabase database:**
 
-Run the SQL in `web-app/schema.sql` in your Supabase project's SQL editor. This creates the `lists` and `words` tables with Row Level Security (RLS) policies.
+For a new database, run `web-app/schema.sql`, then `web-app/migrations/20261101_web_release.sql` in Supabase SQL Editor. Existing databases need only the migration. See `web-app/README.md` for account redirect URLs and Vercel configuration.
 
 **Run the development server:**
 ```bash
@@ -180,6 +185,7 @@ Both the desktop and web apps use the **Google Gemma 3 27B** model via the Googl
 
 - Words are processed in **batches of 10** for efficiency
 - The AI generates an improved definition and a natural example sentence for each term
+- Web requests are limited to 10 owned words and 5 requests per user per minute; updates are saved atomically
 - The desktop app calls the API directly from the Java client
 - The web app proxies the call through a secure Next.js API route (`/api/ai-enhance`) so the API key is never exposed to the browser
 
