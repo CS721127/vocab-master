@@ -103,13 +103,21 @@ export async function POST(request: Request) {
         }),
       },
     );
-    if (!response.ok)
+    if (!response.ok) {
+      // Log only allowlisted diagnostics, never provider bodies or credentials.
+      const providerCode = await response.json().then((body) => {
+        const code = body?.error?.status;
+        return ["INVALID_ARGUMENT", "PERMISSION_DENIED", "NOT_FOUND", "RESOURCE_EXHAUSTED", "UNAUTHENTICATED", "INTERNAL", "UNAVAILABLE"].includes(code)
+          ? code : "UNKNOWN";
+      }).catch(() => "UNKNOWN");
+      console.error("AI provider request failed", { status: response.status, code: providerCode, model });
       return fail(
         response.status === 429
           ? "The AI provider is busy. Please retry later."
           : "The AI provider is unavailable. No changes were saved.",
         502,
       );
+    }
     const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts
       ?.map((part: { text?: string }) => part.text ?? "")
