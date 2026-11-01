@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/config";
+import { signupErrorDestination } from "@/lib/auth-feedback";
 
 const message = (page: string, error: string): never =>
   redirect(`${page}?error=${encodeURIComponent(error)}`);
@@ -43,13 +44,7 @@ export async function authenticate(formData: FormData) {
       password,
       options: { emailRedirectTo: `${siteUrl}/auth/callback` },
     });
-    if (error)
-      message(
-        page,
-        error.code === "over_email_send_rate_limit"
-          ? "Too many attempts. Please wait before requesting another email."
-          : "Unable to create your account. Please try again or sign in if you already have an account.",
-      );
+    if (error) redirect(signupErrorDestination(error.code));
     if (data.session) redirect("/dashboard");
     redirect(
       "/signup?message=Check%20your%20email%20to%20confirm%20your%20account.%20Open%20the%20link%20in%20this%20browser.",
